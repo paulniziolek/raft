@@ -20,8 +20,10 @@ package raft
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/paulniziolek/raft/pkg/raft/raftconfig"
+	"github.com/paulniziolek/raft/pkg/raft/raftstate"
 	"github.com/paulniziolek/raft/pkg/rpc"
 )
 
@@ -51,17 +53,21 @@ type Raft struct {
 	me        int              // this peer's index into peers[]
 	dead      int32            // set by Kill()
 
-	config *raftconfig.RaftConfig
+	config         *raftconfig.RaftConfig
+	electionTicker time.Ticker
+	state          raftstate.State
+	term           int
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
+	term := rf.term
+	isLeader := rf.state == raftstate.Leader
+	rf.mu.Unlock()
 
-	var term int
-	var isleader bool
-	// Your code here (2A).
-	return term, isleader
+	return term, isLeader
 }
 
 // save Raft's persistent state to stable storage,
@@ -98,21 +104,22 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
 type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
 type RequestVoteReply struct {
-	// Your data here (2A).
+	Term        int
+	VoteGranted bool
 }
 
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.electionTicker.Reset(time.Duration(rf.config.ElectionTimeout) * time.Millisecond)
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -204,11 +211,28 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.config = raftconfig.NewRaftConfig()
+	rf.electionTicker = *time.NewTicker(time.Duration(rf.config.ElectionTimeout) * time.Millisecond)
 
 	// Your initialization code here (2A, 2B, 2C).
+	rf.initializeElectionThread()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	return rf
+}
+
+func (rf *Raft) initializeElectionThread() {
+	go func(rf *Raft) {
+		select {
+		case t := <-rf.electionTicker.C:
+			_ = t // TODO: temp lint error
+			rf.startElection()
+		}
+	}(rf)
+}
+
+func (rf *Raft) startElection() {
+	// TODO: impl
+
 }
