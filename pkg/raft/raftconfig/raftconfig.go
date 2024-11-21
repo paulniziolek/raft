@@ -1,5 +1,7 @@
 package raftconfig
 
+import "math/rand"
+
 const (
 	defaultElectionTimeout       = 1000
 	defaultElectionTimeoutOffset = 100
@@ -26,5 +28,6 @@ func NewRaftConfig(options ...Option) *RaftConfig {
 	for _, option := range options {
 		option(config)
 	}
+	config.ElectionTimeout += rand.Int63n(config.ElectionTimeoutRandOffset)
 	return config
 }
