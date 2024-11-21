@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/paulniziolek/raft/pkg/raft/raftconfig"
 	"github.com/paulniziolek/raft/pkg/rpc"
 )
 
@@ -50,10 +51,7 @@ type Raft struct {
 	me        int              // this peer's index into peers[]
 	dead      int32            // set by Kill()
 
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
-
+	config *raftconfig.RaftConfig
 }
 
 // return currentTerm and whether this server
@@ -205,6 +203,7 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.config = raftconfig.NewRaftConfig()
 
 	// Your initialization code here (2A, 2B, 2C).
 
