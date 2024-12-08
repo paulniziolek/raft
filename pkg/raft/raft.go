@@ -53,21 +53,47 @@ type Raft struct {
 	me        int              // this peer's index into peers[]
 	dead      int32            // set by Kill()
 
+	// channels
+	shutdownCh chan struct{}
+
 	config         *raftconfig.RaftConfig
 	electionTicker time.Ticker
 	state          raftstate.State
-	term           int
+	currTerm       uint64
+	votedFor       int
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-	rf.mu.Lock()
-	term := rf.term
-	isLeader := rf.state == raftstate.Leader
-	rf.mu.Unlock()
+	state := rf.getState()
+	isLeader := state == raftstate.Leader
+
+	term := rf.getTerm()
 
 	return term, isLeader
+}
+
+// TODO: Consider moving these to a RaftState struct instead, to separate State modification code from raft biz loggic code
+
+func (rf *Raft) getState() raftstate.State {
+	stateAddr := (*uint32)(&rf.state)
+	return raftstate.State(atomic.LoadUint32(stateAddr))
+}
+
+func (rf *Raft) setState(s raftstate.State) {
+	stateAddr := (*uint32)(&rf.state)
+	atomic.StoreUint32(stateAddr, uint32(s))
+}
+
+func (rf *Raft) getTerm() int {
+	termAddr := (*uint64)(&rf.currTerm)
+	return int(atomic.LoadUint64(termAddr))
+}
+
+func (rf *Raft) setTerm(newTerm uint64) {
+	termAddr := (*uint64)(&rf.currTerm)
+	atomic.StoreUint64(termAddr, uint64(newTerm))
 }
 
 // save Raft's persistent state to stable storage,
@@ -105,14 +131,14 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 type RequestVoteArgs struct {
-	Term         int
+	Term         uint64
 	CandidateId  int
 	LastLogIndex int
 	LastLogTerm  int
 }
 
 type RequestVoteReply struct {
-	Term        int
+	Term        uint64
 	VoteGranted bool
 }
 
@@ -213,8 +239,11 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.config = raftconfig.NewRaftConfig()
 	rf.electionTicker = *time.NewTicker(time.Duration(rf.config.ElectionTimeout) * time.Millisecond)
 
-	// Your initialization code here (2A, 2B, 2C).
+	// change election timeout to not be a separate thread
 	rf.initializeElectionThread()
+
+	// running raft here on worker thread?
+	go rf.run()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -225,14 +254,63 @@ func Make(peers []*rpc.ClientEnd, me int,
 func (rf *Raft) initializeElectionThread() {
 	go func(rf *Raft) {
 		select {
-		case t := <-rf.electionTicker.C:
-			_ = t // TODO: temp lint error
+		case <-rf.electionTicker.C:
 			rf.startElection()
 		}
 	}(rf)
 }
 
 func (rf *Raft) startElection() {
-	// TODO: impl
+	rf.currTerm += 1
+	rf.votedFor = rf.me
+	rf.state = raftstate.Candidate
+	args := &RequestVoteArgs{
+		Term:         rf.currTerm,
+		CandidateId:  rf.me,
+		LastLogIndex: -1, // TODO: Fix this when implementing logs
+		LastLogTerm:  -1, // TODO: Fix this when implementing logs
+	}
+	for servId := range rf.peers {
+		if servId == rf.me {
+			continue
+		}
+		go func(args *RequestVoteArgs) {
+			reply := &RequestVoteReply{}
+			rf.sendRequestVote(servId, args, reply)
+			// TODO: process reply
+		}(args)
+	}
 
+}
+
+func (rf *Raft) run() {
+	for {
+		select {
+		case <-rf.shutdownCh:
+			// clear leader and shutdown
+			return
+		default:
+		}
+
+		switch rf.getState() {
+		case raftstate.Follower:
+			rf.runFollower()
+		case raftstate.Candidate:
+			rf.runCandidate()
+		case raftstate.Leader:
+			rf.runLeader()
+		}
+	}
+}
+
+func (rf *Raft) runFollower() {
+	// TODO: Impl follower logic
+}
+
+func (rf *Raft) runCandidate() {
+	// TODO: Impl candidate logic
+}
+
+func (rf *Raft) runLeader() {
+	// TODO: Impl leader logic
 }
