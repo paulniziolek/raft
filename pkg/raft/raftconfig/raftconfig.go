@@ -1,6 +1,9 @@
 package raftconfig
 
-import "math/rand"
+import (
+	"math/rand"
+	"time"
+)
 
 const (
 	defaultElectionTimeout       = 1000
@@ -30,4 +33,11 @@ func NewRaftConfig(options ...Option) *RaftConfig {
 	}
 	config.ElectionTimeout += rand.Int63n(config.ElectionTimeoutRandOffset)
 	return config
+}
+
+// Returns a random [election] timeout, calculated by the config ElectionTimeout + rand(0, ElectionTimeoutRandOffset)
+func (rc *RaftConfig) RandomElectionTimeout() <-chan time.Time {
+	baseTimeout := rc.ElectionTimeout
+	extra := rand.Int63n(rc.ElectionTimeoutRandOffset)
+	return time.After(time.Duration(baseTimeout) + time.Duration(extra))
 }
