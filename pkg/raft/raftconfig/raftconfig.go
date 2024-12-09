@@ -37,7 +37,7 @@ func NewRaftConfig(options ...Option) *RaftConfig {
 
 // Returns a random [election] timeout, calculated by the config ElectionTimeout + rand(0, ElectionTimeoutRandOffset)
 func (rc *RaftConfig) RandomElectionTimeout() <-chan time.Time {
-	baseTimeout := rc.ElectionTimeout
-	extra := rand.Int63n(rc.ElectionTimeoutRandOffset)
-	return time.After(time.Duration(baseTimeout) + time.Duration(extra))
+	baseTimeout := time.Duration(rc.ElectionTimeout) * time.Millisecond
+	extra := time.Duration(rand.Int63n(rc.ElectionTimeoutRandOffset)) * time.Millisecond
+	return time.After(baseTimeout + extra)
 }
