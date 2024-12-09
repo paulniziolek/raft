@@ -38,7 +38,7 @@ func makeSeed() int64 {
 	return x
 }
 
-type config struct {
+type Config struct {
 	mu        sync.Mutex
 	t         *testing.T
 	net       *rpc.Network
@@ -49,9 +49,9 @@ type config struct {
 	saved     []*Persister
 	endnames  [][]string            // the port file names each sends to
 	logs      []map[int]interface{} // copy of each server's committed entries
-	start     time.Time             // time at which make_config() was called
-	// begin()/end() statistics
-	t0        time.Time // time at which test_test.go called cfg.begin()
+	start     time.Time             // time at which NewConfig() was called
+	// Begin()/end() statistics
+	t0        time.Time // time at which test_test.go called cfg.Begin()
 	rpcs0     int       // rpcTotal() at start of test
 	cmds0     int       // number of agreements
 	bytes0    int64
@@ -61,7 +61,7 @@ type config struct {
 
 var ncpu_once sync.Once
 
-func make_config(t *testing.T, n int, unreliable bool) *config {
+func NewConfig(t *testing.T, n int, unreliable bool) *Config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
@@ -69,7 +69,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 		rand.Seed(makeSeed())
 	})
 	runtime.GOMAXPROCS(4)
-	cfg := &config{}
+	cfg := &Config{}
 	cfg.t = t
 	cfg.net = rpc.MakeNetwork()
 	cfg.n = n
@@ -100,7 +100,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 }
 
 // shut down a Raft server but save its persistent state.
-func (cfg *config) crash1(i int) {
+func (cfg *Config) crash1(i int) {
 	cfg.disconnect(i)
 	cfg.net.DeleteServer(i) // disable client connections to the server.
 
@@ -135,7 +135,7 @@ func (cfg *config) crash1(i int) {
 // allocate new outgoing port file names, and a new
 // state persister, to isolate previous instance of
 // this server. since we cannot really kill it.
-func (cfg *config) start1(i int) {
+func (cfg *Config) start1(i int) {
 	cfg.crash1(i)
 
 	// a fresh set of outgoing ClientEnd names.
@@ -216,14 +216,14 @@ func (cfg *config) start1(i int) {
 	cfg.net.AddServer(i, srv)
 }
 
-func (cfg *config) checkTimeout() {
+func (cfg *Config) checkTimeout() {
 	// enforce a two minute real-time limit on each test
-	if !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
+	if cfg.t != nil && !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
 		cfg.t.Fatal("test took longer than 120 seconds")
 	}
 }
 
-func (cfg *config) cleanup() {
+func (cfg *Config) cleanup() {
 	for i := 0; i < len(cfg.rafts); i++ {
 		if cfg.rafts[i] != nil {
 			cfg.rafts[i].Kill()
@@ -234,7 +234,7 @@ func (cfg *config) cleanup() {
 }
 
 // attach server i to the net.
-func (cfg *config) connect(i int) {
+func (cfg *Config) connect(i int) {
 	// fmt.Printf("connect(%d)\n", i)
 
 	cfg.connected[i] = true
@@ -257,7 +257,7 @@ func (cfg *config) connect(i int) {
 }
 
 // detach server i from the net.
-func (cfg *config) disconnect(i int) {
+func (cfg *Config) disconnect(i int) {
 	// fmt.Printf("disconnect(%d)\n", i)
 
 	cfg.connected[i] = false
@@ -279,29 +279,29 @@ func (cfg *config) disconnect(i int) {
 	}
 }
 
-func (cfg *config) rpcCount(server int) int {
+func (cfg *Config) rpcCount(server int) int {
 	return cfg.net.GetCount(server)
 }
 
-func (cfg *config) rpcTotal() int {
+func (cfg *Config) rpcTotal() int {
 	return cfg.net.GetTotalCount()
 }
 
-func (cfg *config) setunreliable(unrel bool) {
+func (cfg *Config) setunreliable(unrel bool) {
 	cfg.net.Reliable(!unrel)
 }
 
-func (cfg *config) bytesTotal() int64 {
+func (cfg *Config) bytesTotal() int64 {
 	return cfg.net.GetTotalBytes()
 }
 
-func (cfg *config) setlongreordering(longrel bool) {
+func (cfg *Config) setlongreordering(longrel bool) {
 	cfg.net.LongReordering(longrel)
 }
 
 // check that there's exactly one leader.
 // try a few times in case re-elections are needed.
-func (cfg *config) checkOneLeader() int {
+func (cfg *Config) checkOneLeader() int {
 	for iters := 0; iters < 10; iters++ {
 		ms := 450 + (rand.Int63() % 100)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
@@ -334,7 +334,7 @@ func (cfg *config) checkOneLeader() int {
 }
 
 // check that everyone agrees on the term.
-func (cfg *config) checkTerms() int {
+func (cfg *Config) checkTerms() int {
 	term := -1
 	for i := 0; i < cfg.n; i++ {
 		if cfg.connected[i] {
@@ -350,7 +350,7 @@ func (cfg *config) checkTerms() int {
 }
 
 // check that there's no leader
-func (cfg *config) checkNoLeader() {
+func (cfg *Config) checkNoLeader() {
 	for i := 0; i < cfg.n; i++ {
 		if cfg.connected[i] {
 			_, is_leader := cfg.rafts[i].GetState()
@@ -362,7 +362,7 @@ func (cfg *config) checkNoLeader() {
 }
 
 // how many servers think a log entry is committed?
-func (cfg *config) nCommitted(index int) (int, interface{}) {
+func (cfg *Config) nCommitted(index int) (int, interface{}) {
 	count := 0
 	var cmd interface{} = nil
 	for i := 0; i < len(cfg.rafts); i++ {
@@ -388,7 +388,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 
 // wait for at least n servers to commit.
 // but don't wait forever.
-func (cfg *config) wait(index int, n int, startTerm int) interface{} {
+func (cfg *Config) wait(index int, n int, startTerm int) interface{} {
 	to := 10 * time.Millisecond
 	for iters := 0; iters < 30; iters++ {
 		nd, _ := cfg.nCommitted(index)
@@ -429,7 +429,7 @@ func (cfg *config) wait(index int, n int, startTerm int) interface{} {
 // times, in case a leader fails just after Start().
 // if retry==false, calls Start() only once, in order
 // to simplify the early Lab 2B tests.
-func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
+func (cfg *Config) one(cmd interface{}, expectedServers int, retry bool) int {
 	t0 := time.Now()
 	starts := 0
 	for time.Since(t0).Seconds() < 10 {
@@ -480,8 +480,8 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 
 // start a Test.
 // print the Test message.
-// e.g. cfg.begin("Test (2B): RPC counts aren't too high")
-func (cfg *config) begin(description string) {
+// e.g. cfg.Begin("Test (2B): RPC counts aren't too high")
+func (cfg *Config) Begin(description string) {
 	fmt.Printf("%s ...\n", description)
 	cfg.t0 = time.Now()
 	cfg.rpcs0 = cfg.rpcTotal()
@@ -494,9 +494,9 @@ func (cfg *config) begin(description string) {
 // was no failure.
 // print the Passed message,
 // and some performance numbers.
-func (cfg *config) end() {
+func (cfg *Config) End() {
 	cfg.checkTimeout()
-	if cfg.t.Failed() == false {
+	if cfg.t == nil || !cfg.t.Failed() {
 		cfg.mu.Lock()
 		t := time.Since(cfg.t0).Seconds()       // real time
 		npeers := cfg.n                         // number of Raft peers

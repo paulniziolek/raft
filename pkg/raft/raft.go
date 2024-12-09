@@ -214,6 +214,7 @@ func (rf *Raft) run() {
 func (rf *Raft) runFollower() {
 	// TODO: Impl follower logic
 	electionTimer := rf.config.RandomElectionTimeout()
+	fmt.Println("Test")
 
 	for rf.raftState.GetState() == raftstate.Follower {
 		select {
