@@ -27,9 +27,6 @@ import (
 	"github.com/paulniziolek/raft/pkg/rpc"
 )
 
-// import "bytes"
-// import "../labgob"
-
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make(). set
@@ -56,44 +53,28 @@ type Raft struct {
 	// channels
 	shutdownCh chan struct{}
 
-	config         *raftconfig.RaftConfig
+	config *raftconfig.RaftConfig
+	// Move ticker to a select {} when the Follower or Candidate states are being ran
 	electionTicker time.Ticker
-	state          raftstate.State
-	currTerm       uint64
+	raftState      raftstate.RaftState
 	votedFor       int
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-	state := rf.getState()
+	state := rf.raftState.GetState()
 	isLeader := state == raftstate.Leader
 
-	term := rf.getTerm()
+	term := rf.raftState.GetTerm()
 
 	return term, isLeader
 }
 
-// TODO: Consider moving these to a RaftState struct instead, to separate State modification code from raft biz loggic code
-
-func (rf *Raft) getState() raftstate.State {
-	stateAddr := (*uint32)(&rf.state)
-	return raftstate.State(atomic.LoadUint32(stateAddr))
-}
-
-func (rf *Raft) setState(s raftstate.State) {
-	stateAddr := (*uint32)(&rf.state)
-	atomic.StoreUint32(stateAddr, uint32(s))
-}
-
-func (rf *Raft) getTerm() int {
-	termAddr := (*uint64)(&rf.currTerm)
-	return int(atomic.LoadUint64(termAddr))
-}
-
-func (rf *Raft) setTerm(newTerm uint64) {
-	termAddr := (*uint64)(&rf.currTerm)
-	atomic.StoreUint64(termAddr, uint64(newTerm))
+// Returns the number of votes needed for a candidate to win majority over the cluster
+func (rf *Raft) getQuorumSize() int {
+	// We assume all peers are running servers and Voters.
+	return len(rf.peers)/2 + 1
 }
 
 // save Raft's persistent state to stable storage,
@@ -192,10 +173,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) {
+	index = -1
+	term = -1
+	isLeader = true
 
 	// Your code here (2B).
 
