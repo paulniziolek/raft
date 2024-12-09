@@ -289,6 +289,20 @@ func (rf *Raft) runFollower() {
 
 func (rf *Raft) runCandidate() {
 	// TODO: Impl candidate logic
+	electionTimer := rf.config.RandomElectionTimeout()
+
+	// TODO: need to transition to Candidate State and send out VoteRequest RPCs to all peers
+
+	for rf.raftState.GetState() == raftstate.Candidate {
+		select {
+		case <-electionTimer:
+			electionTimer = rf.config.RandomElectionTimeout()
+			fmt.Println("Candidate election timeout reached, restarting election")
+			return
+		case <-rf.shutdownCh:
+			return
+		}
+	}
 }
 
 func (rf *Raft) runLeader() {
