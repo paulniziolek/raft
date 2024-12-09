@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,11 +54,11 @@ type Raft struct {
 	// channels
 	shutdownCh chan struct{}
 
-	config *raftconfig.RaftConfig
-	// Move ticker to a select {} when the Follower or Candidate states are being ran
-	electionTicker time.Ticker
-	raftState      raftstate.RaftState
-	votedFor       int
+	config      *raftconfig.RaftConfig
+	raftState   raftstate.RaftState
+	lastContact time.Time
+	// Is votedFor really needed?
+	votedFor int
 }
 
 // return currentTerm and whether this server
@@ -68,13 +69,26 @@ func (rf *Raft) GetState() (int, bool) {
 
 	term := rf.raftState.GetTerm()
 
-	return term, isLeader
+	return int(term), isLeader
 }
 
 // Returns the number of votes needed for a candidate to win majority over the cluster
 func (rf *Raft) getQuorumSize() int {
 	// We assume all peers are running servers and Voters.
 	return len(rf.peers)/2 + 1
+}
+
+func (rf *Raft) LastContact() (last time.Time) {
+	rf.mu.Lock()
+	last = rf.lastContact
+	rf.mu.Unlock()
+	return last
+}
+
+func (rf *Raft) setLastContact() {
+	rf.mu.Lock()
+	rf.lastContact = time.Now()
+	rf.mu.Unlock()
 }
 
 // save Raft's persistent state to stable storage,
@@ -126,7 +140,7 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	rf.electionTicker.Reset(time.Duration(rf.config.ElectionTimeout) * time.Millisecond)
+
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -194,7 +208,7 @@ func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) 
 // should call killed() to check whether it should stop.
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
-	// Your code here, if desired.
+	rf.shutdownCh <- struct{}{}
 }
 
 func (rf *Raft) killed() bool {
@@ -218,12 +232,7 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.config = raftconfig.NewRaftConfig()
-	rf.electionTicker = *time.NewTicker(time.Duration(rf.config.ElectionTimeout) * time.Millisecond)
 
-	// change election timeout to not be a separate thread
-	rf.initializeElectionThread()
-
-	// running raft here on worker thread?
 	go rf.run()
 
 	// initialize from state persisted before a crash
@@ -232,48 +241,16 @@ func Make(peers []*rpc.ClientEnd, me int,
 	return rf
 }
 
-func (rf *Raft) initializeElectionThread() {
-	go func(rf *Raft) {
-		select {
-		case <-rf.electionTicker.C:
-			rf.startElection()
-		}
-	}(rf)
-}
-
-func (rf *Raft) startElection() {
-	rf.currTerm += 1
-	rf.votedFor = rf.me
-	rf.state = raftstate.Candidate
-	args := &RequestVoteArgs{
-		Term:         rf.currTerm,
-		CandidateId:  rf.me,
-		LastLogIndex: -1, // TODO: Fix this when implementing logs
-		LastLogTerm:  -1, // TODO: Fix this when implementing logs
-	}
-	for servId := range rf.peers {
-		if servId == rf.me {
-			continue
-		}
-		go func(args *RequestVoteArgs) {
-			reply := &RequestVoteReply{}
-			rf.sendRequestVote(servId, args, reply)
-			// TODO: process reply
-		}(args)
-	}
-
-}
-
 func (rf *Raft) run() {
 	for {
 		select {
 		case <-rf.shutdownCh:
-			// clear leader and shutdown
+			// TODO: perform shutdown
 			return
 		default:
 		}
 
-		switch rf.getState() {
+		switch rf.raftState.GetState() {
 		case raftstate.Follower:
 			rf.runFollower()
 		case raftstate.Candidate:
@@ -286,6 +263,26 @@ func (rf *Raft) run() {
 
 func (rf *Raft) runFollower() {
 	// TODO: Impl follower logic
+	electionTimer := rf.config.RandomElectionTimeout()
+
+	for rf.raftState.GetState() == raftstate.Follower {
+		select {
+		case <-electionTimer:
+			lastContact := rf.LastContact()
+			if time.Since(lastContact) < time.Duration(rf.config.ElectionTimeout) {
+				continue
+			}
+
+			// TODO: get a logging library lol
+			fmt.Println("Follower HB timeout reached, starting election")
+			rf.raftState.SetState(raftstate.Candidate)
+			return
+
+		case <-rf.shutdownCh:
+			return
+		}
+	}
+
 }
 
 func (rf *Raft) runCandidate() {
