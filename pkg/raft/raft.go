@@ -269,6 +269,8 @@ func (rf *Raft) runFollower() {
 		select {
 		case <-electionTimer:
 			lastContact := rf.LastContact()
+			electionTimer = rf.config.RandomElectionTimeout()
+
 			if time.Since(lastContact) < time.Duration(rf.config.ElectionTimeout) {
 				continue
 			}
