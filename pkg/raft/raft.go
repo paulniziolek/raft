@@ -57,8 +57,6 @@ type Raft struct {
 	config      *raftconfig.RaftConfig
 	raftState   raftstate.RaftState
 	lastContact time.Time
-	// Is votedFor really needed?
-	votedFor int
 }
 
 // return currentTerm and whether this server
@@ -240,19 +238,67 @@ func (rf *Raft) runFollower() {
 func (rf *Raft) runCandidate() {
 	// TODO: Impl candidate logic
 	electionTimer := rf.config.RandomElectionTimeout()
+	var voteCh <-chan *RequestVoteReply
+	voteCh = rf.voteSelf()
+
+	lastTerm := rf.raftState.GetTerm()
+	rf.raftState.SetTerm(lastTerm + 1)
 
 	// TODO: need to transition to Candidate State and send out VoteRequest RPCs to all peers
+	votesNeeded := rf.getQuorumSize()
+	votes := 0
 
 	for rf.raftState.GetState() == raftstate.Candidate {
 		select {
+		case voteReply := <-voteCh:
+			// if a peer is on a higher term, we should step down from candidate
+			if voteReply.Term > rf.raftState.GetTerm() {
+				rf.raftState.SetState(raftstate.Follower)
+				return
+			}
+
+			if voteReply.VoteGranted {
+				votes++
+			}
+
+			if votes == votesNeeded {
+				// convert to leader
+				rf.raftState.SetState(raftstate.Leader)
+				return
+			}
+
 		case <-electionTimer:
-			electionTimer = rf.config.RandomElectionTimeout()
 			fmt.Println("Candidate election timeout reached, restarting election")
 			return
 		case <-rf.shutdownCh:
 			return
 		}
 	}
+}
+
+// Votes for self and requests votes from all peers
+func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
+	voteCh := make(chan *RequestVoteReply, rf.getQuorumSize())
+
+	requestVoteArgs := &RequestVoteArgs{
+		Term:        rf.raftState.GetTerm(),
+		CandidateId: rf.me,
+		// TODO: Fix the log index/term once log entry struct is implemented
+		LastLogIndex: -1,
+		LastLogTerm:  -1,
+	}
+
+	for i := range rf.peers {
+		// Allowing for Candidate to vote for self
+		go func() {
+			// TODO: check if RPC was sent/received
+			reply := &RequestVoteReply{}
+			_ = rf.SendRequestVote(i, requestVoteArgs, reply)
+			voteCh <- reply
+		}()
+	}
+
+	return voteCh
 }
 
 func (rf *Raft) runLeader() {
