@@ -30,6 +30,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	if currTerm >= args.Term {
 		// deny the vote, our term is higher (or equal to)
+		rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+			Uint64("Requesting node's term", args.Term).
+			Uint64("Receiver term", currTerm).
+			Msg("Rejecting RequestVote, our term is higher or equal to candidate")
 		return
 	}
 
@@ -38,17 +42,32 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		// TODO: add voting condition of only when the log is up to date once logs are implemented
 		if rf.raftState.GetVotedFor() != -1 {
 			// deny the vote, we have already votedFor another candidate
+			rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+				Int32("Receiver votedFor", rf.raftState.GetVotedFor()).
+				Msg("Rejecting RequestVote, we have already voted")
 			return
 		}
+
+		rf.logger.Info().Int("Requesting node ID", args.CandidateId).
+			Uint64("Requesting node's term", args.Term).
+			Msg("Accepting RequestVote and voting for candidate")
 
 	case raftstate.Candidate:
 		// we step down as candidate since our term is lower
 		// need to figure out how to exit from runCandidate loop, perhaps using some refresh channel lol
+		rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+			Uint64("Requesting node's term", args.Term).
+			Uint64("Receiver term", currTerm).
+			Msg("Accepting RequestVote and stepping down as Candidate, our term is lower")
 		rf.raftState.SetState(raftstate.Follower)
 
 	case raftstate.Leader:
 		// we step down as leader since our term is lower
 		// Need to figure out leader cleanup actions and exit from runLeader loop
+		rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+			Uint64("Requesting node's term", args.Term).
+			Uint64("Receiver term", currTerm).
+			Msg("Accepting RequestVote and stepping down as Leader, our term is lower")
 		rf.raftState.SetState(raftstate.Follower)
 	}
 
