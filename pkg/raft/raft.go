@@ -18,7 +18,6 @@ package raft
 //
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +25,8 @@ import (
 	"github.com/paulniziolek/raft/pkg/raft/raftconfig"
 	"github.com/paulniziolek/raft/pkg/raft/raftstate"
 	"github.com/paulniziolek/raft/pkg/rpc"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // as each Raft peer becomes aware that successive log entries are
@@ -57,6 +58,7 @@ type Raft struct {
 	config      *raftconfig.RaftConfig
 	raftState   raftstate.RaftState
 	lastContact time.Time
+	logger      zerolog.Logger
 }
 
 // return currentTerm and whether this server
@@ -66,6 +68,11 @@ func (rf *Raft) GetState() (int, bool) {
 	isLeader := state == raftstate.Leader
 
 	term := rf.raftState.GetTerm()
+
+	rf.logger.Debug().
+		Int("term", int(term)).
+		Bool("isLeader", isLeader).
+		Msg("GetState called")
 
 	return int(term), isLeader
 }
@@ -142,6 +149,10 @@ func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) 
 
 	// Your code here (2B).
 
+	rf.logger.Info().
+		Interface("command", command).
+		Msg("Start called")
+
 	return index, term, isLeader
 }
 
@@ -157,6 +168,7 @@ func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) 
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	rf.shutdownCh <- struct{}{}
+	rf.logger.Info().Msg("Kill called")
 }
 
 func (rf *Raft) killed() bool {
@@ -180,6 +192,8 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.config = raftconfig.NewRaftConfig()
+
+	rf.logger = log.With().Int("nodeID", me).Logger()
 
 	go rf.run()
 
@@ -213,6 +227,8 @@ func (rf *Raft) runFollower() {
 	// TODO: Impl follower logic
 	electionTimer := rf.config.RandomElectionTimeout()
 
+	rf.logger.Info().Msg("Running as Follower")
+
 	for rf.raftState.GetState() == raftstate.Follower {
 		select {
 		case <-electionTimer:
@@ -223,8 +239,7 @@ func (rf *Raft) runFollower() {
 				continue
 			}
 
-			// TODO: get a logging library lol
-			fmt.Println("Follower HB timeout reached, starting election")
+			rf.logger.Warn().Msg("Follower HB timeout reached, starting election")
 			rf.raftState.SetState(raftstate.Candidate)
 			return
 
@@ -243,6 +258,8 @@ func (rf *Raft) runCandidate() {
 
 	lastTerm := rf.raftState.GetTerm()
 	rf.raftState.SetTerm(lastTerm + 1)
+
+	rf.logger.Info().Msg("Running as Candidate")
 
 	// TODO: need to transition to Candidate State and send out VoteRequest RPCs to all peers
 	votesNeeded := rf.getQuorumSize()
@@ -268,7 +285,7 @@ func (rf *Raft) runCandidate() {
 			}
 
 		case <-electionTimer:
-			fmt.Println("Candidate election timeout reached, restarting election")
+			rf.logger.Warn().Msg("Candidate election timeout reached, restarting election")
 			return
 		case <-rf.shutdownCh:
 			return
@@ -303,4 +320,5 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 
 func (rf *Raft) runLeader() {
 	// TODO: Impl leader logic
+	rf.logger.Info().Msg("Running as Leader")
 }
