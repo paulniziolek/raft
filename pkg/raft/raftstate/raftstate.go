@@ -7,6 +7,8 @@ type RaftState struct {
 	state State
 
 	currTerm uint64
+
+	votedFor int32
 }
 
 func (r *RaftState) GetState() State {
@@ -24,7 +26,20 @@ func (r *RaftState) GetTerm() uint64 {
 	return atomic.LoadUint64(termAddr)
 }
 
+// Set Term has an effect of clearing votedFor
 func (r *RaftState) SetTerm(newTerm uint64) {
 	termAddr := (*uint64)(&r.currTerm)
 	atomic.StoreUint64(termAddr, uint64(newTerm))
+
+	r.SetVotedFor(-1)
+}
+
+func (r *RaftState) GetVotedFor() int32 {
+	votedForAddr := (*int32)(&r.votedFor)
+	return atomic.LoadInt32(votedForAddr)
+}
+
+func (r *RaftState) SetVotedFor(vote int32) {
+	votedForAddr := (*int32)(&r.votedFor)
+	atomic.StoreInt32(votedForAddr, vote)
 }
