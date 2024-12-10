@@ -1,5 +1,7 @@
 package raft
 
+import "github.com/paulniziolek/raft/pkg/raft/raftstate"
+
 type RequestVoteArgs struct {
 	Term         uint64
 	CandidateId  int
@@ -15,7 +17,45 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.setLastContact()
+	// we should have differing logic depending on if the current state is follower, leader, or candidate
+	// for followers, we should always grant the vote if the term is higher AND their log is at least as up-to-date as the followers
+	// AND the current term our votedFor is nil (or -1)
 
+	// for leaders, we should only step down as leader if the term is higher
+	// for candidates, we should deny the vote and respond with the current term
+
+	currTerm := rf.raftState.GetTerm()
+	reply.Term = currTerm
+
+	if currTerm >= args.Term {
+		// deny the vote, our term is higher (or equal to)
+		return
+	}
+
+	switch rf.raftState.GetState() {
+	case raftstate.Follower:
+		// TODO: add voting condition of only when the log is up to date once logs are implemented
+		if rf.raftState.GetVotedFor() != -1 {
+			// deny the vote, we have already votedFor another candidate
+			return
+		}
+
+	case raftstate.Candidate:
+		// we step down as candidate since our term is lower
+		// need to figure out how to exit from runCandidate loop, perhaps using some refresh channel lol
+		rf.raftState.SetState(raftstate.Follower)
+
+	case raftstate.Leader:
+		// we step down as leader since our term is lower
+		// Need to figure out leader cleanup actions and exit from runLeader loop
+		rf.raftState.SetState(raftstate.Follower)
+	}
+
+	rf.raftState.SetTerm(args.Term)
+	reply.Term = args.Term
+	reply.VoteGranted = true
+	rf.raftState.SetVotedFor(int32(args.CandidateId))
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -45,7 +85,35 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) SendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
+}
+
+type AppendEntryArgs struct {
+	Term     uint64
+	LeaderID int
+
+	PrevLogIndex       int
+	PrevLogTerm        int
+	Entries            []interface{} // TODO: Design entry struct
+	LeadersCommitIndex int
+}
+
+type AppendEntryReply struct {
+	Term    uint64
+	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+}
+
+func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
+	rf.setLastContact()
+
+	if len(args.Entries) == 0 {
+		return
+	}
+}
+
+func (rf *Raft) SendAppendEntry(server int, args *AppendEntryArgs, reply *AppendEntryReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
 	return ok
 }
