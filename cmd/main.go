@@ -11,7 +11,7 @@ func main() {
 	raftConfig := raft.NewConfig(nil, 3, false)
 	raftConfig.Begin("Starting RAFT cluster from main entry point")
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	raftConfig.End()
 }

@@ -11,6 +11,15 @@ type RaftState struct {
 	votedFor int32
 }
 
+func NewRaftState() *RaftState {
+	raftState := &RaftState{
+		state:    Follower,
+		currTerm: 0,
+		votedFor: -1,
+	}
+	return raftState
+}
+
 func (r *RaftState) GetState() State {
 	stateAddr := (*uint32)(&r.state)
 	return State(atomic.LoadUint32(stateAddr))

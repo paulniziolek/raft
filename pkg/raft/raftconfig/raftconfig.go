@@ -7,7 +7,7 @@ import (
 
 const (
 	defaultElectionTimeout       = 1000
-	defaultElectionTimeoutOffset = 100
+	defaultElectionTimeoutOffset = 500
 	defaultHeartbeat             = 200
 )
 
@@ -35,7 +35,6 @@ func NewRaftConfig(options ...Option) *RaftConfig {
 	return config
 }
 
-// Returns a random [election] timeout, calculated by the config ElectionTimeout + rand(0, ElectionTimeoutRandOffset)
 func (rc *RaftConfig) RandomElectionTimeout() <-chan time.Time {
 	baseTimeout := time.Duration(rc.ElectionTimeout) * time.Millisecond
 	extra := time.Duration(rand.Int63n(rc.ElectionTimeoutRandOffset)) * time.Millisecond

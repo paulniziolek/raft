@@ -28,9 +28,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	currTerm := rf.raftState.GetTerm()
 	reply.Term = currTerm
 
-	if currTerm >= args.Term {
+	if currTerm > args.Term && args.CandidateId != rf.me {
 		// deny the vote, our term is higher (or equal to)
-		rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+		rf.logger.Info().Int("Requesting node ID", args.CandidateId).
 			Uint64("Requesting node's term", args.Term).
 			Uint64("Receiver term", currTerm).
 			Msg("Rejecting RequestVote, our term is higher or equal to candidate")
@@ -40,9 +40,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	switch rf.raftState.GetState() {
 	case raftstate.Follower:
 		// TODO: add voting condition of only when the log is up to date once logs are implemented
-		if rf.raftState.GetVotedFor() != -1 {
+		if rf.raftState.GetVotedFor() != -1 && currTerm >= args.Term {
 			// deny the vote, we have already votedFor another candidate
-			rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
+			rf.logger.Info().Int("Requesting node ID", args.CandidateId).
+				Uint64("Requesting node's term", args.Term).
+				Uint64("Receiver term", currTerm).
 				Int32("Receiver votedFor", rf.raftState.GetVotedFor()).
 				Msg("Rejecting RequestVote, we have already voted")
 			return
@@ -55,6 +57,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	case raftstate.Candidate:
 		// we step down as candidate since our term is lower
 		// need to figure out how to exit from runCandidate loop, perhaps using some refresh channel lol
+		if args.CandidateId == rf.me {
+			rf.logger.Info().Int("Requesting node ID", args.CandidateId).
+				Uint64("Requesting node's term", args.Term).
+				Uint64("Receiver term", currTerm).
+				Msg("Accepting RequestVote for self")
+			break
+		}
+
 		rf.logger.Warn().Int("Requesting node ID", args.CandidateId).
 			Uint64("Requesting node's term", args.Term).
 			Uint64("Receiver term", currTerm).

@@ -18,6 +18,8 @@ package raft
 //
 
 import (
+	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,7 +59,7 @@ type Raft struct {
 	shutdownCh chan struct{}
 
 	config      *raftconfig.RaftConfig
-	raftState   raftstate.RaftState
+	raftState   *raftstate.RaftState
 	lastContact time.Time
 	logger      zerolog.Logger
 }
@@ -193,8 +195,17 @@ func Make(peers []*rpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.config = raftconfig.NewRaftConfig()
+	rf.raftState = raftstate.NewRaftState()
+	rf.refreshCh = make(chan struct{}, 1)
+	rf.shutdownCh = make(chan struct{}, 1)
 
-	rf.logger = log.With().Int("nodeID", me).Logger()
+	fileName := fmt.Sprintf("node%d.log", me)
+	file, _ := os.OpenFile(fileName, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	rf.logger = log.Output(zerolog.ConsoleWriter{
+		Out:        file,
+		TimeFormat: time.RFC3339,
+		NoColor:    true,
+	}).With().Int("nodeID", me).Logger()
 
 	go rf.run()
 
@@ -245,22 +256,22 @@ func (rf *Raft) runFollower() {
 			return
 
 		case <-rf.shutdownCh:
+			rf.shutdownCh <- struct{}{}
 			return
 		}
 	}
-
 }
 
 func (rf *Raft) runCandidate() {
 	// TODO: Impl candidate logic
+	rf.logger.Info().Msg("Running as Candidate")
 	electionTimer := rf.config.RandomElectionTimeout()
 	var voteCh <-chan *RequestVoteReply
-	voteCh = rf.voteSelf()
 
 	lastTerm := rf.raftState.GetTerm()
 	rf.raftState.SetTerm(lastTerm + 1)
 
-	rf.logger.Info().Msg("Running as Candidate")
+	voteCh = rf.voteSelf()
 
 	// TODO: need to transition to Candidate State and send out VoteRequest RPCs to all peers
 	votesNeeded := rf.getQuorumSize()
@@ -289,8 +300,10 @@ func (rf *Raft) runCandidate() {
 			rf.logger.Warn().Msg("Candidate election timeout reached, restarting election")
 			return
 		case <-rf.shutdownCh:
+			rf.shutdownCh <- struct{}{}
 			return
 		case <-rf.refreshCh:
+			rf.logger.Info().Msg("Stepping down as candidate")
 		}
 	}
 }
@@ -323,4 +336,14 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 func (rf *Raft) runLeader() {
 	// TODO: Impl leader logic
 	rf.logger.Info().Msg("Running as Leader")
+
+	for rf.raftState.GetState() == raftstate.Leader {
+		select {
+		case <-rf.shutdownCh:
+			rf.shutdownCh <- struct{}{}
+			return
+		case <-rf.refreshCh:
+			rf.logger.Info().Msg("Stepping down as leader")
+		}
+	}
 }
