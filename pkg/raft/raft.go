@@ -53,6 +53,7 @@ type Raft struct {
 	dead      int32            // set by Kill()
 
 	// channels
+	refreshCh  chan struct{}
 	shutdownCh chan struct{}
 
 	config      *raftconfig.RaftConfig
@@ -289,6 +290,7 @@ func (rf *Raft) runCandidate() {
 			return
 		case <-rf.shutdownCh:
 			return
+		case <-rf.refreshCh:
 		}
 	}
 }

@@ -60,6 +60,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			Uint64("Receiver term", currTerm).
 			Msg("Accepting RequestVote and stepping down as Candidate, our term is lower")
 		rf.raftState.SetState(raftstate.Follower)
+		rf.refreshCh <- struct{}{}
 
 	case raftstate.Leader:
 		// we step down as leader since our term is lower
@@ -69,6 +70,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			Uint64("Receiver term", currTerm).
 			Msg("Accepting RequestVote and stepping down as Leader, our term is lower")
 		rf.raftState.SetState(raftstate.Follower)
+		rf.refreshCh <- struct{}{}
 	}
 
 	rf.raftState.SetTerm(args.Term)
