@@ -383,8 +383,8 @@ func (rf *Raft) sendHeartbeat() {
 		}
 		go func(server int) {
 			reply := &AppendEntryReply{}
-			_ = rf.SendAppendEntry(server, appendEntryArgs, reply)
-			if !reply.Success {
+			ok := rf.SendAppendEntry(server, appendEntryArgs, reply)
+			if ok && !reply.Success {
 				rf.logger.Warn().
 					Int("rejecting node", server).
 					Uint64("new term", reply.Term).
