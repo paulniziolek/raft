@@ -299,13 +299,16 @@ func (rf *Raft) runCandidate() {
 		case <-electionTimer:
 			rf.logger.Warn().Msg("Candidate election timeout reached, restarting election")
 			return
+
 		case <-rf.shutdownCh:
 			rf.shutdownCh <- struct{}{}
+			rf.raftState.SetState(raftstate.Follower)
 			return
+
 		case <-rf.refreshCh:
-			rf.logger.Info().Msg("Stepping down as candidate")
 		}
 	}
+	rf.logger.Info().Msg("Stepping down as candidate")
 }
 
 // Votes for self and requests votes from all peers
@@ -336,14 +339,42 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 func (rf *Raft) runLeader() {
 	// TODO: Impl leader logic
 	rf.logger.Info().Msg("Running as Leader")
+	hbTimer := rf.config.GetHeartbeatTimer()
 
 	for rf.raftState.GetState() == raftstate.Leader {
 		select {
+		case <-hbTimer:
+			// send HB to all servers
+			hbTimer = rf.config.GetHeartbeatTimer()
+			rf.sendHeartbeat()
+
 		case <-rf.shutdownCh:
 			rf.shutdownCh <- struct{}{}
+			rf.raftState.SetState(raftstate.Follower)
 			return
+
 		case <-rf.refreshCh:
-			rf.logger.Info().Msg("Stepping down as leader")
 		}
+	}
+	rf.logger.Info().Msg("Stepping down as leader")
+}
+
+func (rf *Raft) sendHeartbeat() {
+	appendEntryArgs := &AppendEntryArgs{
+		Term:     rf.raftState.GetTerm(),
+		LeaderID: rf.me,
+		// TODO: add log index and other relevant append entry stuff here once entry is implemented
+	}
+
+	for i := range rf.peers {
+		if i == rf.me {
+			// don't need to send HB to self
+			continue
+		}
+		go func() {
+			reply := &AppendEntryReply{}
+			_ = rf.SendAppendEntry(i, appendEntryArgs, reply)
+			// TODO: process append entry reply
+		}()
 	}
 }

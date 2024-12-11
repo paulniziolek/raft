@@ -40,13 +40,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	switch rf.raftState.GetState() {
 	case raftstate.Follower:
 		// TODO: add voting condition of only when the log is up to date once logs are implemented
-		if rf.raftState.GetVotedFor() != -1 && currTerm >= args.Term {
+		if rf.raftState.GetVotedFor() != -1 && currTerm == args.Term {
 			// deny the vote, we have already votedFor another candidate
 			rf.logger.Info().Int("Requesting node ID", args.CandidateId).
 				Uint64("Requesting node's term", args.Term).
 				Uint64("Receiver term", currTerm).
 				Int32("Receiver votedFor", rf.raftState.GetVotedFor()).
-				Msg("Rejecting RequestVote, we have already voted")
+				Msg("Rejecting RequestVote, we have already voted in the current term")
 			return
 		}
 
@@ -127,7 +127,7 @@ type AppendEntryArgs struct {
 
 	PrevLogIndex       int
 	PrevLogTerm        int
-	Entries            []interface{} // TODO: Design entry struct
+	Entries            []*interface{} // TODO: Design entry struct
 	LeadersCommitIndex int
 }
 
@@ -138,6 +138,26 @@ type AppendEntryReply struct {
 
 func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.setLastContact()
+
+	// Logic with append entries:
+	// 1. reply false if term < currTerm
+	// 2. reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+	// 3. if an existing entry conflicts with new one (same idx but diff terms), delete existing entry and all that follow it
+	// 4. append any new entries not in the log
+	// 5. if leaderCommitIndex > commitIndex, set commitIndex = min(leaderCommitIndex, index of last new entry)
+	// TODO: finish 2-5
+	currTerm := rf.raftState.GetTerm()
+
+	if args.Term < currTerm {
+		rf.logger.Warn().Uint64("receiver term", currTerm).
+			Uint64("requester term", args.Term).
+			Int("requester id", args.LeaderID).
+			Msg("rejecting AppendEntry, our term is higher")
+
+		reply.Success = false
+		reply.Term = currTerm
+		// TODO: actually process this rejected AppendEntry()
+	}
 
 	if len(args.Entries) == 0 {
 		return

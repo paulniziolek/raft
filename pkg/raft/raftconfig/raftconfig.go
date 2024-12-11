@@ -40,3 +40,8 @@ func (rc *RaftConfig) RandomElectionTimeout() <-chan time.Time {
 	extra := time.Duration(rand.Int63n(rc.ElectionTimeoutRandOffset)) * time.Millisecond
 	return time.After(baseTimeout + extra)
 }
+
+func (rc *RaftConfig) GetHeartbeatTimer() <-chan time.Time {
+	timeout := time.Duration(rc.Heartbeat) * time.Millisecond
+	return time.After(timeout)
+}
