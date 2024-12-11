@@ -239,7 +239,9 @@ func (rf *Raft) runFollower() {
 	// TODO: Impl follower logic
 	electionTimer := rf.config.RandomElectionTimeout()
 
-	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Follower")
+	rf.logger.Info().
+		Uint64("term", rf.raftState.GetTerm()).
+		Msg("Running as Follower")
 
 	for rf.raftState.GetState() == raftstate.Follower {
 		select {
@@ -271,7 +273,9 @@ func (rf *Raft) runCandidate() {
 	lastTerm := rf.raftState.GetTerm()
 	rf.raftState.SetTerm(lastTerm + 1)
 
-	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Candidate")
+	rf.logger.Info().
+		Uint64("term", rf.raftState.GetTerm()).
+		Msg("Running as Candidate")
 
 	voteCh = rf.voteSelf()
 
@@ -340,7 +344,9 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 
 func (rf *Raft) runLeader() {
 	// TODO: Impl leader logic
-	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Leader")
+	rf.logger.Info().
+		Uint64("term", rf.raftState.GetTerm()).
+		Msg("Running as Leader")
 	hbTimer := rf.config.GetHeartbeatTimer()
 
 	for rf.raftState.GetState() == raftstate.Leader {
@@ -379,7 +385,11 @@ func (rf *Raft) sendHeartbeat() {
 			reply := &AppendEntryReply{}
 			_ = rf.SendAppendEntry(server, appendEntryArgs, reply)
 			if !reply.Success {
-				rf.logger.Warn().Int("rejecting node", server).Uint64("new term", reply.Term).Msg("Stepping down as leader due to rejected heartbeat")
+				rf.logger.Warn().
+					Int("rejecting node", server).
+					Uint64("new term", reply.Term).
+					Msg("Stepping down as leader due to rejected heartbeat")
+
 				rf.raftState.SetTerm(reply.Term)
 				rf.raftState.SetState(raftstate.Follower)
 				rf.refreshCh <- struct{}{}
