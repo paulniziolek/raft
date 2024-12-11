@@ -327,12 +327,12 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 
 	for i := range rf.peers {
 		// Allowing for Candidate to vote for self
-		go func() {
+		go func(server int) {
 			// TODO: check if RPC was sent/received
 			reply := &RequestVoteReply{}
-			_ = rf.SendRequestVote(i, requestVoteArgs, reply)
+			_ = rf.SendRequestVote(server, requestVoteArgs, reply)
 			voteCh <- reply
-		}()
+		}(i)
 	}
 
 	return voteCh
@@ -368,15 +368,22 @@ func (rf *Raft) sendHeartbeat() {
 		// TODO: add log index and other relevant append entry stuff here once entry is implemented
 	}
 
+	rf.logger.Debug().Msg("Sending HBs...")
+
 	for i := range rf.peers {
 		if i == rf.me {
 			// don't need to send HB to self
 			continue
 		}
-		go func() {
+		go func(server int) {
 			reply := &AppendEntryReply{}
-			_ = rf.SendAppendEntry(i, appendEntryArgs, reply)
-			// TODO: process append entry reply
-		}()
+			_ = rf.SendAppendEntry(server, appendEntryArgs, reply)
+			if !reply.Success {
+				rf.logger.Warn().Int("rejecting node", server).Uint64("new term", reply.Term).Msg("Stepping down as leader due to rejected heartbeat")
+				rf.raftState.SetTerm(reply.Term)
+				rf.raftState.SetState(raftstate.Follower)
+				rf.refreshCh <- struct{}{}
+			}
+		}(i)
 	}
 }
