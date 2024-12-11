@@ -171,7 +171,7 @@ func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) 
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	rf.shutdownCh <- struct{}{}
-	rf.logger.Info().Msg("Kill called")
+	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Kill called")
 }
 
 func (rf *Raft) killed() bool {
@@ -239,7 +239,7 @@ func (rf *Raft) runFollower() {
 	// TODO: Impl follower logic
 	electionTimer := rf.config.RandomElectionTimeout()
 
-	rf.logger.Info().Msg("Running as Follower")
+	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Follower")
 
 	for rf.raftState.GetState() == raftstate.Follower {
 		select {
@@ -247,8 +247,9 @@ func (rf *Raft) runFollower() {
 			lastContact := rf.LastContact()
 			electionTimer = rf.config.RandomElectionTimeout()
 
-			if time.Since(lastContact) < time.Duration(rf.config.ElectionTimeout) {
-				continue
+			if time.Since(lastContact) < (time.Duration(rf.config.ElectionTimeout) * time.Millisecond) {
+				rf.logger.Warn().Msg("Remaining as follower")
+				break
 			}
 
 			rf.logger.Warn().Msg("Follower HB timeout reached, starting election")
@@ -264,12 +265,13 @@ func (rf *Raft) runFollower() {
 
 func (rf *Raft) runCandidate() {
 	// TODO: Impl candidate logic
-	rf.logger.Info().Msg("Running as Candidate")
 	electionTimer := rf.config.RandomElectionTimeout()
 	var voteCh <-chan *RequestVoteReply
 
 	lastTerm := rf.raftState.GetTerm()
 	rf.raftState.SetTerm(lastTerm + 1)
+
+	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Candidate")
 
 	voteCh = rf.voteSelf()
 
@@ -338,7 +340,7 @@ func (rf *Raft) voteSelf() <-chan *RequestVoteReply {
 
 func (rf *Raft) runLeader() {
 	// TODO: Impl leader logic
-	rf.logger.Info().Msg("Running as Leader")
+	rf.logger.Info().Uint64("term", rf.raftState.GetTerm()).Msg("Running as Leader")
 	hbTimer := rf.config.GetHeartbeatTimer()
 
 	for rf.raftState.GetState() == raftstate.Leader {

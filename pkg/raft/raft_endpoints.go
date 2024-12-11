@@ -147,6 +147,8 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// 5. if leaderCommitIndex > commitIndex, set commitIndex = min(leaderCommitIndex, index of last new entry)
 	// TODO: finish 2-5
 	currTerm := rf.raftState.GetTerm()
+	reply.Term = currTerm
+	reply.Success = true
 
 	if args.Term < currTerm {
 		rf.logger.Warn().Uint64("receiver term", currTerm).
@@ -155,7 +157,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			Msg("rejecting AppendEntry, our term is higher")
 
 		reply.Success = false
-		reply.Term = currTerm
 		// TODO: actually process this rejected AppendEntry()
 	}
 
